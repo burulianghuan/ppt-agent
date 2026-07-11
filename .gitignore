@@ -1,0 +1,8 @@
+# 本地环境（勿提交）
+.env
+outputs/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/

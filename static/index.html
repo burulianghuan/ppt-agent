@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PPT Agent · SVG 预览</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="panel">
+      <header class="brand">
+        <div class="logo">PPT</div>
+        <div>
+          <h1>PPT Agent</h1>
+          <p>调研 → 大纲 → 资料 → 策划 → SVG</p>
+        </div>
+      </header>
+
+      <form id="form" class="form">
+        <label>主题 *
+          <input name="topic" required placeholder="例如：Dify 企业介绍" />
+        </label>
+        <label>受众
+          <input name="audience" value="企业决策者 / 技术负责人" />
+        </label>
+        <label>目的
+          <input name="purpose" value="产品介绍与商务说服" />
+        </label>
+        <label>页数
+          <input name="pages" value="8-10页" />
+        </label>
+        <label>风格
+          <input name="style" value="现代科技、高级感、简洁、深色背景点缀青色" />
+        </label>
+        <label>补充说明
+          <textarea name="extra" rows="3" placeholder="必须强调的卖点、禁用内容等"></textarea>
+        </label>
+        <label class="check">
+          <input type="checkbox" name="auto_confirm_outline" />
+          跳过大纲确认，一键跑完
+        </label>
+        <button type="submit" id="btn-start">开始生成</button>
+      </form>
+
+      <section class="status-box">
+        <div class="status-row">
+          <span>状态</span>
+          <strong id="st-status">idle</strong>
+        </div>
+        <div class="status-row">
+          <span>进度</span>
+          <strong id="st-progress">—</strong>
+        </div>
+        <div class="status-row">
+          <span>任务</span>
+          <code id="st-job">—</code>
+        </div>
+        <p id="st-error" class="error" hidden></p>
+      </section>
+
+      <section id="outline-box" class="outline-box" hidden>
+        <h2>大纲确认</h2>
+        <textarea id="outline-json" rows="14"></textarea>
+        <div class="row-btns">
+          <button type="button" id="btn-confirm" class="primary">确认并继续设计</button>
+          <button type="button" id="btn-cancel" class="ghost">取消</button>
+        </div>
+      </section>
+
+      <div class="row-btns" id="download-row" hidden>
+        <a id="btn-download" class="button-link" href="#">下载 SVG (zip)</a>
+        <button type="button" id="btn-pptx" class="primary">下载 PPTX（可编辑）</button>
+      </div>
+      <p id="pptx-hint" class="hint" hidden>PPTX 需逐页渲染，稍等片刻。用 PowerPoint 2016+ 打开，右键图形「转换为形状」即可改字。</p>
+    </aside>
+
+    <main class="stage">
+      <div class="stage-toolbar">
+        <button type="button" id="prev" disabled>上一页</button>
+        <span id="page-label">预览区</span>
+        <button type="button" id="next" disabled>下一页</button>
+      </div>
+      <div id="preview" class="preview">
+        <div class="empty">
+          <h2>从左侧填写主题开始</h2>
+          <p>生成完成后在此预览 1280×720 SVG 页面。<br/>可 iframe 嵌入你的网站。</p>
+        </div>
+      </div>
+      <div id="thumbs" class="thumbs"></div>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
