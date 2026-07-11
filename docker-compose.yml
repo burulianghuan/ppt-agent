@@ -1,0 +1,16 @@
+services:
+  ppt-agent:
+    build: .
+    image: ppt-agent:latest
+    container_name: ppt-agent
+    ports:
+      - "8787:8787"          # 宿主机 8787 -> 容器 8787
+    env_file:
+      - .env                 # 读取中转 key / 模型配置
+    environment:
+      - HOST=0.0.0.0         # 容器内必须监听所有网卡
+      - PORT=8787
+      - OUTPUT_DIR=/app/outputs
+    volumes:
+      - ./outputs:/app/outputs   # 生成的 SVG/PPTX 持久化到宿主机
+    restart: unless-stopped      # 崩溃/重启后自动拉起

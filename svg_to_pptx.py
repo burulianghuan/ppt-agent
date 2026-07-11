@@ -1,7 +1,9 @@
 """SVG 页面 -> PPTX。
 
 策略：
-- 用 headless Edge 把每页 SVG 渲成高清 PNG（兜底位图，保证任何环境都能看）。
+- 优先用 cairosvg 把每页 SVG 渲成高清 PNG（Linux/Docker 环境，轻量）。
+- 没有 cairosvg 时回退 headless 浏览器（Windows 本地用 Edge/Chrome）。
+- PNG 作兜底位图，保证任何环境都能看。
 - 把原始 SVG 作为矢量图注入到同一张图片上（svgBlip）。
   这样在 PowerPoint 2016+/365 里显示的是矢量，右键「转换为形状」即可编辑文字。
 
@@ -12,10 +14,8 @@
 
 from __future__ import annotations
 
-import base64
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -33,26 +33,63 @@ SCALE = 2  # 渲染倍率，PNG 兜底图清晰度
 
 SVG_NS = "http://schemas.microsoft.com/office/drawing/2016/SVG/main"
 
+# 浏览器候选（回退用）
+_BROWSERS = (
+    "msedge",
+    "chromium",
+    "chromium-browser",
+    "google-chrome",
+    "chrome",
+)
+_BROWSER_PATHS = (
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome",
+)
 
-def find_edge() -> str | None:
-    for name in ("msedge", "msedge.exe"):
+_cairosvg_ok: bool | None = None
+
+
+def cairosvg_available() -> bool:
+    global _cairosvg_ok
+    if _cairosvg_ok is None:
+        try:
+            import cairosvg  # noqa: F401
+
+            _cairosvg_ok = True
+        except Exception:
+            _cairosvg_ok = False
+    return _cairosvg_ok
+
+
+def find_browser() -> str | None:
+    for name in _BROWSERS:
         p = shutil.which(name)
         if p:
             return p
-    candidates = [
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-    ]
-    for c in candidates:
+    for c in _BROWSER_PATHS:
         if Path(c).exists():
             return c
     return None
 
 
-def render_svg_to_png(edge: str, svg_path: Path, out_png: Path) -> None:
-    """用 headless Edge 截图渲染 SVG -> PNG。"""
+def _render_with_cairosvg(svg_path: Path, out_png: Path) -> None:
+    import cairosvg
+
+    cairosvg.svg2png(
+        bytestring=svg_path.read_bytes(),
+        write_to=str(out_png),
+        output_width=SVG_W * SCALE,
+        output_height=SVG_H * SCALE,
+    )
+
+
+def _render_with_browser(browser: str, svg_path: Path, out_png: Path) -> None:
+    """用 headless 浏览器截图渲染 SVG -> PNG。"""
     svg = svg_path.read_text(encoding="utf-8")
-    # 包一层 html，固定视口，去掉边距
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <style>*{{margin:0;padding:0}}html,body{{width:{SVG_W}px;height:{SVG_H}px;overflow:hidden}}
 svg{{display:block;width:{SVG_W}px;height:{SVG_H}px}}</style></head>
@@ -63,9 +100,10 @@ svg{{display:block;width:{SVG_W}px;height:{SVG_H}px}}</style></head>
         html_file.write_text(html, encoding="utf-8")
         shot = Path(td) / "shot.png"
         cmd = [
-            edge,
+            browser,
             "--headless=new",
             "--disable-gpu",
+            "--no-sandbox",
             f"--window-size={SVG_W * SCALE},{SVG_H * SCALE}",
             f"--force-device-scale-factor={SCALE}",
             "--default-background-color=00000000",
@@ -75,8 +113,26 @@ svg{{display:block;width:{SVG_W}px;height:{SVG_H}px}}</style></head>
         ]
         subprocess.run(cmd, check=True, capture_output=True, timeout=120)
         if not shot.exists():
-            raise RuntimeError(f"Edge 未生成截图: {svg_path.name}")
+            raise RuntimeError(f"浏览器未生成截图: {svg_path.name}")
         out_png.write_bytes(shot.read_bytes())
+
+
+def render_svg_to_png(svg_path: Path, out_png: Path) -> None:
+    """渲染单页 SVG -> PNG，自动选择可用后端。"""
+    if cairosvg_available():
+        try:
+            _render_with_cairosvg(svg_path, out_png)
+            if out_png.exists() and out_png.stat().st_size > 0:
+                return
+        except Exception:
+            pass  # cairosvg 失败则尝试浏览器
+
+    browser = find_browser()
+    if not browser:
+        raise RuntimeError(
+            "未找到 SVG 渲染器：请安装 cairosvg（Linux）或 Edge/Chrome（Windows）"
+        )
+    _render_with_browser(browser, svg_path, out_png)
 
 
 def inject_svg(pptx_path: Path, mapping: list[tuple[int, Path]]) -> None:
@@ -133,9 +189,10 @@ def inject_svg(pptx_path: Path, mapping: list[tuple[int, Path]]) -> None:
 
 
 def build_pptx(svg_dir: Path, out_pptx: Path) -> None:
-    edge = find_edge()
-    if not edge:
-        raise RuntimeError("未找到 Edge，无法渲染兜底位图")
+    if not cairosvg_available() and not find_browser():
+        raise RuntimeError(
+            "未找到渲染器：请安装 cairosvg（Linux）或 Edge/Chrome（Windows）"
+        )
 
     svgs = sorted(svg_dir.glob("*.svg"))
     if not svgs:
@@ -146,15 +203,13 @@ def build_pptx(svg_dir: Path, out_pptx: Path) -> None:
     prs.slide_height = SLIDE_H
     blank = prs.slide_layouts[6]
 
-    tmp_pngs: list[Path] = []
     mapping: list[tuple[int, Path]] = []
     tmpdir = Path(tempfile.mkdtemp(prefix="svg2pptx_"))
 
     for i, svg in enumerate(svgs):
         png = tmpdir / f"{i:02d}.png"
         print(f"[{i+1}/{len(svgs)}] 渲染 {svg.name} ...", flush=True)
-        render_svg_to_png(edge, svg, png)
-        tmp_pngs.append(png)
+        render_svg_to_png(svg, png)
 
         slide = prs.slides.add_slide(blank)
         slide.shapes.add_picture(str(png), 0, 0, width=SLIDE_W, height=SLIDE_H)
@@ -173,6 +228,8 @@ def build_pptx(svg_dir: Path, out_pptx: Path) -> None:
 
 
 if __name__ == "__main__":
+    import sys
+
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)

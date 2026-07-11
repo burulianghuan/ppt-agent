@@ -1,0 +1,12 @@
+# 不打进镜像的内容
+.env
+outputs/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.venv/
+venv/
+.pytest_cache/
+*.pptx
+probe_render.py
